@@ -234,7 +234,8 @@
       <input type="text" id="inp-cliente" placeholder="Ej: Empresa ABC">
     </div>
 
-    <div class="field">
+    <!-- Campo UF (default) -->
+    <div class="field" id="campo-uf">
       <label style="display:flex;justify-content:space-between;align-items:center;">
         Monto en UF
         <span id="uf-chip" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--blue);background:var(--blue-dim);border:1px solid #4A9EFF30;padding:2px 8px;border-radius:3px;letter-spacing:.06em;">cargando UF…</span>
@@ -242,7 +243,13 @@
       <input type="number" id="inp-monto" placeholder="0.00" min="0" step="0.01" oninput="updatePreview()">
     </div>
 
-    <div class="field">
+    <!-- Campo CLP (solo Ajuste) -->
+    <div class="field" id="campo-clp" style="display:none;">
+      <label>Monto en $ CLP</label>
+      <input type="number" id="inp-monto-clp" placeholder="Ej: 108000" min="0" step="1" oninput="updatePreview()">
+    </div>
+
+    <div class="field" id="dcto-field">
       <label style="display:flex;justify-content:space-between;align-items:center;">
         Descuento
         <span id="dcto-chip" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:2px 8px;border-radius:3px;letter-spacing:.06em;">0%</span>
@@ -408,24 +415,40 @@ function setTipo(t) {
 }
 
 function onCategoriaChange() {
-  const cat = document.getElementById('inp-categoria').value;
-  const tipoRow  = document.getElementById('tipo-row');
+  const cat        = document.getElementById('inp-categoria').value;
+  const tipoRow    = document.getElementById('tipo-row');
   const ajusteInfo = document.getElementById('ajuste-info');
+  const campoUF    = document.getElementById('campo-uf');
+  const campoCLP   = document.getElementById('campo-clp');
+  const dctoRow    = document.getElementById('dcto-field');
+
   if (cat === 'Ajuste') {
+    // ocultar tipo/freq
     tipoRow.style.opacity = '0.3';
     tipoRow.style.pointerEvents = 'none';
     document.getElementById('freq-row').style.opacity = '0.3';
     document.getElementById('freq-row').style.pointerEvents = 'none';
+    // mostrar banner y campo CLP, ocultar UF y descuento
     ajusteInfo.style.display = 'flex';
+    campoUF.style.display  = 'none';
+    campoCLP.style.display = 'flex';
+    dctoRow.style.display  = 'none';
+    // limpiar UF
+    document.getElementById('inp-monto').value = '';
   } else {
     tipoRow.style.opacity = '';
     tipoRow.style.pointerEvents = '';
-    // restaurar freq-row según tipo actual
     document.getElementById('freq-row').style.opacity = '';
     document.getElementById('freq-row').style.pointerEvents = '';
     document.getElementById('freq-row').classList.toggle('hidden', tipoActual==='os');
     ajusteInfo.style.display = 'none';
+    campoUF.style.display  = 'flex';
+    campoCLP.style.display = 'none';
+    dctoRow.style.display  = 'flex';
+    // limpiar CLP
+    document.getElementById('inp-monto-clp').value = '';
   }
+  updatePreview();
 }
 function setFreq(f) {
   freqActual = f;
@@ -485,11 +508,20 @@ function syncDctoFromNum() {
   updatePreview();
 }
 function updatePreview() {
-  const uf   = parseFloat(document.getElementById('inp-monto').value) || 0;
-  const dcto = parseInt(document.getElementById('inp-dcto').value) || 0;
-  const bruto = valorUF ? uf * valorUF : 0;
-  const neto  = bruto * (1 - dcto / 100);
-  const val   = calcValorMeta(neto, tipoActual, freqActual);
+  const cat      = document.getElementById('inp-categoria').value;
+  const esAjuste = cat === 'Ajuste';
+  let bruto = 0;
+  if (esAjuste) {
+    bruto = parseFloat(document.getElementById('inp-monto-clp').value) || 0;
+  } else {
+    const uf = parseFloat(document.getElementById('inp-monto').value) || 0;
+    bruto = valorUF ? uf * valorUF : 0;
+  }
+  const dcto = esAjuste ? 0 : (parseInt(document.getElementById('inp-dcto').value) || 0);
+  const neto = bruto * (1 - dcto / 100);
+  const tipo = esAjuste ? 'rec' : tipoActual;
+  const freq = esAjuste ? 'unico' : freqActual;
+  const val  = calcValorMeta(neto, tipo, freq);
   document.getElementById('preview-bruto').textContent = '$' + Math.round(bruto).toLocaleString('es-CL');
   const dctoRow = document.getElementById('preview-dcto-row');
   if (dcto > 0) {
@@ -507,43 +539,56 @@ function calcValorMeta(clp, tipo, freq) {
 
 // ── AGREGAR ──
 function agregarVenta() {
-  const cat    = document.getElementById('inp-categoria').value.trim();
-  const cliente= document.getElementById('inp-cliente').value.trim();
-  const uf     = parseFloat(document.getElementById('inp-monto').value) || 0;
-  const dcto   = parseInt(document.getElementById('inp-dcto').value) || 0;
+  const cat      = document.getElementById('inp-categoria').value.trim();
+  const cliente  = document.getElementById('inp-cliente').value.trim();
+  const esAjuste = cat === 'Ajuste';
+  const dcto     = esAjuste ? 0 : (parseInt(document.getElementById('inp-dcto').value) || 0);
+
   if (!cat)    { showToast('Selecciona una categoría','⚠️'); return; }
   if (!cliente){ showToast('Ingresa el cliente / empresa','⚠️'); return; }
-  if (uf<=0)   { showToast('Ingresa un monto en UF','⚠️'); return; }
-  if (!valorUF){ showToast('Esperando valor UF…','⏳'); return; }
 
-  // Ajuste: one shot que impacta meta recurrente — no se anualiza
-  const esAjuste = cat === 'Ajuste';
+  let bruto, ufUsado;
+  if (esAjuste) {
+    bruto   = parseFloat(document.getElementById('inp-monto-clp').value) || 0;
+    ufUsado = null;
+    if (bruto <= 0) { showToast('Ingresa el monto en CLP','⚠️'); return; }
+  } else {
+    const uf = parseFloat(document.getElementById('inp-monto').value) || 0;
+    if (uf <= 0)   { showToast('Ingresa un monto en UF','⚠️'); return; }
+    if (!valorUF)  { showToast('Esperando valor UF…','⏳'); return; }
+    bruto   = uf * valorUF;
+    ufUsado = uf;
+  }
+
   const tipo  = esAjuste ? 'rec' : tipoActual;
   const freq  = esAjuste ? 'unico' : (tipoActual==='os' ? 'unico' : freqActual);
-
-  const bruto = uf * valorUF;
   const clp   = bruto * (1 - dcto / 100);
+
   const v = {
     id:Date.now(), fecha:new Date().toISOString(),
     desc:cat+' — '+cliente, cat, cliente,
-    tipo, freq, uf, ufValor:valorUF,
+    tipo, freq,
+    uf:ufUsado, ufValor: ufUsado ? valorUF : null,
     dcto, bruto, neto:clp,
     valor:calcValorMeta(clp, tipo, freq)
   };
   ventas.unshift(v);
   localStorage.setItem('ventas_cs', JSON.stringify(ventas));
-  document.getElementById('inp-categoria').value = '';
-  document.getElementById('inp-cliente').value   = '';
-  document.getElementById('inp-monto').value     = '';
-  document.getElementById('inp-dcto').value      = 0;
-  document.getElementById('inp-dcto-num').value  = 0;
-  document.getElementById('dcto-chip').textContent   = '0%';
-  document.getElementById('dcto-chip').style.color   = 'var(--muted)';
+
+  // reset form
+  document.getElementById('inp-categoria').value  = '';
+  document.getElementById('inp-cliente').value    = '';
+  document.getElementById('inp-monto').value      = '';
+  document.getElementById('inp-monto-clp').value  = '';
+  document.getElementById('inp-dcto').value       = 0;
+  document.getElementById('inp-dcto-num').value   = 0;
+  document.getElementById('dcto-chip').textContent    = '0%';
+  document.getElementById('dcto-chip').style.color    = 'var(--muted)';
   document.getElementById('dcto-chip').style.borderColor = 'var(--border)';
   onCategoriaChange();
   updatePreview(); updateAll();
-  const dctoLabel = dcto > 0 ? ' (−'+dcto+'%)' : '';
-  const metaLabel = esAjuste ? 'Recurrente (ajuste)' : (tipo==='rec'?'Recurrente':'One Shot');
+  const dctoLabel  = dcto > 0 ? ' (−'+dcto+'%)' : '';
+  const metaLabel  = esAjuste ? 'Recurrente (ajuste)' : (tipo==='rec'?'Recurrente':'One Shot');
   showToast('+'+fmt(v.valor)+dctoLabel+' → '+metaLabel,'✓');
 }
 function eliminarVenta(id) {
@@ -770,7 +815,7 @@ function renderTabla() {
       <td class="td-desc" title="${v.cliente||''}">${v.cliente||'—'}</td>
       <td><span class="venta-badge ${v.tipo==='rec'?'badge-rec':'badge-os'}">${v.tipo==='rec'?'REC':'OS'}</span></td>
       <td class="td-freq">${fl}</td>
-      <td class="td-monto" style="color:var(--muted)">${v.uf?v.uf.toFixed(2)+' UF':fmt(v.neto)}${v.dcto>0?' <span style="font-size:9px;color:var(--orange);font-family:\'JetBrains Mono\',monospace;">−'+v.dcto+'%</span>':''}</td>
+      <td class="td-monto" style="color:var(--muted)">${v.cat==='Ajuste' ? '$'+Math.round(v.neto).toLocaleString('es-CL')+' CLP' : (v.uf ? v.uf.toFixed(2)+' UF' : fmt(v.neto))}${v.dcto>0?' <span style="font-size:9px;color:var(--orange);font-family:\'JetBrains Mono\',monospace;">−'+v.dcto+'%</span>':''}</td>
       <td class="td-meta ${v.tipo==='rec'?'rec-color':'os-color'}">${fmt(v.valor)}</td>
     </tr>`;
   }).join('');
