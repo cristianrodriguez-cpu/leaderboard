@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CS Leaderboard — Junio 2026</title>
+<title>CS Leaderboard — Julio 2026</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -185,7 +185,7 @@
       <div class="header-sub">Visma / Laudus · Meta mensual</div>
     </div>
   </div>
-  <div class="header-month">JUNIO 2026</div>
+  <div class="header-month">JULIO 2026</div>
 </header>
 
 <div class="main">
@@ -377,8 +377,8 @@
 
 <script>
 // ── CONSTANTES ──
-const META_REC = 7503559;
-const META_OS  = 2592139;
+const META_REC = 7718816;
+const META_OS  = 2666500;
 const META_TOT = META_REC + META_OS;
 
 // Catálogo de productos: [nombre, UF, tipo ('rec'|'os'), frecuencia ('mensual'|'unico')]
@@ -464,25 +464,49 @@ function setComboTab(t) {
   renderCombos();
 }
 
-// ── UF ──
+// ── UF PROMEDIO MENSUAL ──
 async function cargarUF() {
-  const chip   = document.getElementById('uf-chip');
-  const cached = JSON.parse(localStorage.getItem('uf_cache') || 'null');
-  const ahora  = Date.now();
-  if (cached && (ahora - cached.ts) < 6*3600*1000) {
+  const chip  = document.getElementById('uf-chip');
+  const ahora = Date.now();
+  const now   = new Date();
+  const mesKey= `uf_cache_${now.getFullYear()}_${now.getMonth()+1}`;
+
+  // Caché por mes — se renueva una vez al día máximo
+  const cached = JSON.parse(localStorage.getItem(mesKey) || 'null');
+  if (cached && (ahora - cached.ts) < 24*3600*1000) {
     valorUF = cached.valor;
-    chip.textContent = '1 UF = $'+Math.round(valorUF).toLocaleString('es-CL');
-    chip.style.color = 'var(--green)'; chip.style.background='var(--green-dim)'; chip.style.borderColor='#00E5A030';
+    chip.textContent = '1 UF ≈ $'+Math.round(valorUF).toLocaleString('es-CL')+' (prom. mes)';
+    chip.style.color='var(--green)'; chip.style.background='var(--green-dim)'; chip.style.borderColor='#00E5A030';
     updatePreview(); renderCombos(); return;
   }
   try {
-    const data = await (await fetch('https://mindicador.cl/api/uf')).json();
-    valorUF = data.serie[0].valor;
-    localStorage.setItem('uf_cache', JSON.stringify({valor:valorUF, ts:ahora}));
-    chip.textContent = '1 UF = $'+Math.round(valorUF).toLocaleString('es-CL');
+    // Trae todos los valores UF del mes actual
+    const mes  = String(now.getMonth()+1).padStart(2,'0');
+    const anio = now.getFullYear();
+    const url  = `https://mindicador.cl/api/uf/${anio}`;
+    const data = await (await fetch(url)).json();
+
+    // Filtra solo los valores del mes actual
+    const serie = data.serie || [];
+    const delMes = serie.filter(v => {
+      const d = new Date(v.fecha);
+      return d.getFullYear() === anio && (d.getMonth()+1) === now.getMonth()+1;
+    });
+
+    let promedio;
+    if (delMes.length > 0) {
+      promedio = delMes.reduce((a, v) => a + v.valor, 0) / delMes.length;
+    } else {
+      // Si no hay datos del mes aún, usa el último valor disponible
+      promedio = serie[0]?.valor || 41000;
+    }
+
+    valorUF = Math.round(promedio * 100) / 100;
+    localStorage.setItem(mesKey, JSON.stringify({valor:valorUF, ts:ahora}));
+    chip.textContent = '1 UF ≈ $'+Math.round(valorUF).toLocaleString('es-CL')+' (prom. '+delMes.length+' días)';
     chip.style.color='var(--green)'; chip.style.background='var(--green-dim)'; chip.style.borderColor='#00E5A030';
   } catch(e) {
-    valorUF = 40800;
+    valorUF = 41000;
     chip.textContent = '1 UF ≈ $'+Math.round(valorUF).toLocaleString('es-CL')+' (est.)';
     chip.style.color='var(--orange)';
   }
